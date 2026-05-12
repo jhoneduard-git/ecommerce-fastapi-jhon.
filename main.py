@@ -90,3 +90,52 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
     db.delete(db_product)
     db.commit()
     return {"ok": True, "mensaje": "Producto eliminado"}
+# Actualizar un producto existente
+@app.put("/products/{product_id}", response_model=schemas.Product)
+def update_product(product_id: int, product_update: schemas.ProductCreate, db: Session = Depends(get_db)):
+    db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    
+    # Actualizamos los campos con la nueva información
+    update_data = product_update.model_dump()
+    for key, value in update_data.items():
+        setattr(db_product, key, value)
+    
+    db.commit()
+    db.refresh(db_product)
+    return db_product
+
+# Eliminar un producto
+@app.delete("/products/{product_id}")
+def delete_product(product_id: int, db: Session = Depends(get_db)):
+    db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    
+    db.delete(db_product)
+    db.commit()
+    return {"mensaje": f"Producto con ID {product_id} eliminado exitosamente"}
+# --- ACTUALIZAR PRODUCTO ---
+@app.put("/products/{product_id}", response_model=schemas.Product)
+def update_product(product_id: int, product_update: schemas.ProductCreate, db: Session = Depends(get_db)):
+    # 1. Buscar el producto en la base de datos
+    db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    
+    # 2. Si no existe, lanzar error 404
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    
+    # 3. Actualizar los campos con la nueva información
+    # Convertimos el esquema a un diccionario
+    update_data = product_update.model_dump()
+    
+    for key, value in update_data.items():
+        setattr(db_product, key, value) # Esto cambia nombre, precio, etc.
+    
+    # 4. Guardar cambios
+    db.commit()
+    db.refresh(db_product)
+    return db_product
