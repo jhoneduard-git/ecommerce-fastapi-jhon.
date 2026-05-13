@@ -139,3 +139,20 @@ def update_product(product_id: int, product_update: schemas.ProductCreate, db: S
     db.commit()
     db.refresh(db_product)
     return db_product
+    # --- RUTA PARA VENDER (DESCONTAR STOCK) ---
+@app.post("/products/{product_id}/sell", response_model=schemas.Product)
+def sell_product(product_id: int, db: Session = Depends(get_db)):
+    db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    
+    if db_product.stock <= 0:
+        raise HTTPException(status_code=400, detail="No hay suficiente stock para realizar la venta")
+    
+    # Restamos una unidad
+    db_product.stock -= 1
+    
+    db.commit()
+    db.refresh(db_product)
+    return db_product
