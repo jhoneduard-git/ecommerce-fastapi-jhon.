@@ -16,3 +16,11 @@ __pycache__/
 
 # Variables de entorno (seguridad)
 .env
+__pycache__/
+env/
+venv/
+.env
+ecommerce.db
+.vscode/
+.DS_Store
+Thumbs.db
