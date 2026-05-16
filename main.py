@@ -6,7 +6,7 @@ from database import SessionLocal, engine
 # Crea las tablas
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Mi API Unificada (Tareas y E-commerce)")
+app = FastAPI(title="Mi API Unificada (Tareas e E-commerce)")
 
 # Dependencia para la DB
 def get_db():
@@ -36,11 +36,41 @@ def crear_tarea(tarea: schemas.TareaCreate, db: Session = Depends(get_db)):
     return nueva_tarea
 
 # --- RUTAS DE E-COMMERCE (PRODUCTOS) ---
+# =====================================================================
+# RUTAS DE LECTURA DE PRODUCTOS (GET) - CÓDIGO CORREGIDO y SIN DUPLICADOS
+# =====================================================================
 
+# 1. Obtener todos los productos (con opción de buscar por nombre)
 @app.get("/products/", response_model=list[schemas.Product], tags=["Productos"])
-def read_products(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return db.query(models.Product).offset(skip).limit(limit).all()
+def read_products(
+    search: str = None, 
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db)
+):
+    # Iniciamos la consulta base
+    query = db.query(models.Product)
+    
+    # Si el usuario escribe algo en el buscador, filtramos las coincidencias
+    if search:
+        # Recuerda cambiar .name por .nombre si así se llama en tu models.py
+        query = query.filter(models.Product.name.contains(search))
+    
+    # Devolvemos el resultado final aplicando la paginación
+    return query.offset(skip).limit(limit).all()
 
+
+# 2. Obtener un producto específico usando su ID único
+@app.get("/products/{product_id}", response_model=schemas.Product, tags=["Productos"])
+def read_product(product_id: int, db: Session = Depends(get_db)):
+    db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+        
+    return db_product
+
+# 2. ESTA FUNCIÓN LA DEJAS EXACTAMENTE IGUAL (No la borres)
 @app.get("/products/{product_id}", response_model=schemas.Product, tags=["Productos"])
 def read_product(product_id: int, db: Session = Depends(get_db)):
     db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
@@ -80,14 +110,29 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
     return {"mensaje": f"Producto con ID {product_id} eliminado exitosamente"}
 
 @app.post("/products/{product_id}/sell", response_model=schemas.Product, tags=["Productos"])
-def sell_product(product_id: int, db: Session = Depends(get_db)):
+def sell_product(product_id: int, quantity: int = 1, db: Session = Depends(get_db)):
+    # 1. Buscar el producto en la base de datos
     db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    
+    # 2. Validar si el producto existe
     if not db_product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
-    if db_product.stock <= 0:
-        raise HTTPException(status_code=400, detail="No hay suficiente stock para realizar la venta")
     
-    db_product.stock -= 1
+    # 3. Validar si la cantidad solicitada es válida (mayor a 0)
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="La cantidad a vender debe ser mayor a 0")
+    
+    # 4. Validar si hay suficiente stock para cubrir la demanda exacta
+    if db_product.stock < quantity:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"No hay suficiente stock. Stock disponible: {db_product.stock}, solicitado: {quantity}"
+        )
+    
+    # 5. Restar la cantidad exacta solicitada
+    db_product.stock -= quantity
+    
+    # 6. Guardar los cambios en la base de datos y refrescar
     db.commit()
     db.refresh(db_product)
     return db_product
