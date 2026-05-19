@@ -39,3 +39,34 @@ class Product(ProductBase):
 
     class Config:
         from_attributes = True
+        from pydantic import BaseModel
+
+# Esquemas para Categorías
+class CategoryBase(BaseModel):
+    name: str
+
+class CategoryCreate(CategoryBase):
+    pass
+
+class Category(CategoryBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+# Modificamos el esquema de Product para que acepte el category_id (Opcional por ahora)
+class ProductBase(BaseModel):
+    name: str
+    price: float
+    stock: int
+    category_id: int | None = None  # Añadimos esto para poder asignarle categoría al crear
+
+class ProductCreate(ProductBase):
+    pass
+
+class Product(ProductBase):
+    id: int
+
+    class Config:
+        from_attributes = True

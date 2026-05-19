@@ -136,3 +136,52 @@ def sell_product(product_id: int, quantity: int = 1, db: Session = Depends(get_d
     db.commit()
     db.refresh(db_product)
     return db_product
+# =====================================================================
+# RUTAS DE CATEGORÍAS
+# =====================================================================
+
+@app.post("/categories/", response_model=schemas.Category, tags=["Categorías"])
+def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db)):
+    # Validar si ya existe una categoría con ese nombre
+    db_category = db.query(models.Category).filter(models.Category.name == category.name).first()
+    if db_category:
+        raise HTTPException(status_code=400, detail="La categoría ya existe")
+    
+    new_category = models.Category(name=category.name)
+    db.add(new_category)
+    db.commit()
+    db.refresh(new_category)
+    return new_category
+
+@app.get("/categories/", response_model=list[schemas.Category], tags=["Categorías"])
+def read_categories(db: Session = Depends(get_db)):
+    return db.query(models.Category).all()
+@app.put("/categories/{category_id}", response_model=schemas.Category, tags=["Categorías"])
+def update_category(
+    category_id: int, 
+    category_data: schemas.CategoryCreate, 
+    db: Session = Depends(get_db)
+):
+    # 1. Buscar la categoría por su ID
+    db_category = db.query(models.Category).filter(models.Category.id == category_id).first()
+    
+    # 2. Si no existe, lanzar un error 404
+    if not db_category:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+    
+    # 3. Validar que el nuevo nombre no esté repetido con otra categoría
+    name_exists = db.query(models.Category).filter(
+        models.Category.name == category_data.name, 
+        models.Category.id != category_id
+    ).first()
+    
+    if name_exists:
+        raise HTTPException(status_code=400, detail="Ya existe otra categoría con ese nombre")
+    
+    # 4. Actualizar el nombre
+    db_category.name = category_data.name
+    
+    # 5. Guardar los cambios
+    db.commit()
+    db.refresh(db_category)
+    return db_category
