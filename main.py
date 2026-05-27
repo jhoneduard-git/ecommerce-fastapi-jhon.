@@ -2,11 +2,21 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 import models, schemas, database
 from database import SessionLocal, engine
+import jwt
+from datetime import datetime, timedelta
+import security  # Nuestro archivo auxiliar de encriptación
 
 # Crea las tablas automáticamente al iniciar el servidor
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Mi API Unificada (Tareas e E-commerce)")
+
+# =====================================================================
+# CONFIGURACIÓN SEGURIDAD (Agrega estas 3 líneas aquí mismo)
+# =====================================================================
+SECRET_KEY = "MI_LLAVE_SECRETA_SUPER_SEGURA_PARA_EL_PORTAFOLIO"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # Dependencia para conectar y cerrar la sesión de la Base de Datos
 def get_db():
@@ -213,3 +223,51 @@ def create_order(order_data: schemas.OrderCreate, db: Session = Depends(get_db))
     db.commit()
     db.refresh(new_order)
     return new_order
+# =====================================================================
+# --- 6. RUTAS DE AUTENTICACIÓN Y USUARIOS ---
+# =====================================================================
+
+# 1. Endpoint para REGISTRAR un nuevo usuario
+@app.post("/auth/register", response_model=schemas.UserResponse, tags=["Autenticación"])
+def register_user(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
+    user_exists = db.query(models.User).filter(models.User.username == user_data.username).first()
+    if user_exists:
+        raise HTTPException(status_code=400, detail="El nombre de usuario ya está registrado")
+    
+    email_exists = db.query(models.User).filter(models.User.email == user_data.email).first()
+    if email_exists:
+        raise HTTPException(status_code=400, detail="El correo electrónico ya está registrado")
+    
+    hashed_pwd = security.get_password_hash(user_data.password)
+    
+    new_user = models.User(
+        username=user_data.username,
+        email=user_data.email,
+        hashed_password=hashed_pwd
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+
+# 2. Endpoint para INICIAR SESIÓN (Genera el Token JWT)
+@app.post("/auth/login", response_model=schemas.Token, tags=["Autenticación"])
+def login(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == user_data.username).first()
+    
+    if not user or not security.verify_password(user_data.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Usuario o contraseña incorrectos")
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now() + access_token_expires
+    
+    token_data = {
+        "sub": user.username,
+        "exp": expire
+    }
+    
+    encoded_jwt = jwt.encode(token_data, SECRET_KEY, algorithm=ALGORITHM)
+    
+    return {"access_token": encoded_jwt, "token_type": "bearer"}

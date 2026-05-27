@@ -88,3 +88,27 @@ class OrderResponse(BaseModel):
 
     class Config:
         from_attributes = True
+        # =====================================================================
+# 5. ESQUEMAS DE USUARIOS Y AUTENTICACIÓN
+# =====================================================================
+
+# Lo que pide la API para registrar un usuario nuevo
+class UserCreate(BaseModel):
+    username: str
+    email: str
+    password: str
+
+# Lo que la API responde cuando consultamos un usuario (sin password)
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+# El esquema para la respuesta del Token de acceso
+class Token(BaseModel):
+    access_token: str
+    token_type: str
