@@ -3,12 +3,12 @@ from sqlalchemy.orm import Session
 import models, schemas, database
 from database import SessionLocal, engine
 
-# Crea las tablas
+# Crea las tablas automáticamente al iniciar el servidor
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Mi API Unificada (Tareas e E-commerce)")
 
-# Dependencia para la DB
+# Dependencia para conectar y cerrar la sesión de la Base de Datos
 def get_db():
     db = SessionLocal()
     try:
@@ -16,13 +16,17 @@ def get_db():
     finally:
         db.close()
 
-# --- RUTAS DE BIENVENIDA ---
-@app.get("/")
+# =====================================================================
+# --- 1. RUTA DE BIENVENIDA ---
+# =====================================================================
+@app.get("/", tags=["General"])
 def home():
-    return {"mensaje": "¡Bienvenido a mi API! Tienes acceso a /tareas y /products"}
+    return {"mensaje": "¡Bienvenido a mi API! Tienes acceso a /tareas, /products y /categories"}
 
-# --- RUTAS DE TAREAS ---
 
+# =====================================================================
+# --- 2. RUTAS DE TAREAS ---
+# =====================================================================
 @app.get("/tareas/", response_model=list[schemas.Tarea], tags=["Tareas"])
 def leer_tareas(db: Session = Depends(get_db)):
     return db.query(models.Tarea).all()
@@ -35,12 +39,12 @@ def crear_tarea(tarea: schemas.TareaCreate, db: Session = Depends(get_db)):
     db.refresh(nueva_tarea)
     return nueva_tarea
 
-# --- RUTAS DE E-COMMERCE (PRODUCTOS) ---
+
 # =====================================================================
-# RUTAS DE LECTURA DE PRODUCTOS (GET) - CÓDIGO CORREGIDO y SIN DUPLICADOS
+# --- 3. RUTAS DE E-COMMERCE (PRODUCTOS) ---
 # =====================================================================
 
-# 1. Obtener todos los productos (con opción de buscar por nombre)
+# Obtener todos los productos (con opción de buscar por nombre y paginación)
 @app.get("/products/", response_model=list[schemas.Product], tags=["Productos"])
 def read_products(
     search: str = None, 
@@ -48,29 +52,12 @@ def read_products(
     limit: int = 100, 
     db: Session = Depends(get_db)
 ):
-    # Iniciamos la consulta base
     query = db.query(models.Product)
-    
-    # Si el usuario escribe algo en el buscador, filtramos las coincidencias
     if search:
-        # Recuerda cambiar .name por .nombre si así se llama en tu models.py
         query = query.filter(models.Product.name.contains(search))
-    
-    # Devolvemos el resultado final aplicando la paginación
     return query.offset(skip).limit(limit).all()
 
-
-# 2. Obtener un producto específico usando su ID único
-@app.get("/products/{product_id}", response_model=schemas.Product, tags=["Productos"])
-def read_product(product_id: int, db: Session = Depends(get_db)):
-    db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
-    
-    if not db_product:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
-        
-    return db_product
-
-# 2. ESTA FUNCIÓN LA DEJAS EXACTAMENTE IGUAL (No la borres)
+# Obtener un producto específico usando su ID único
 @app.get("/products/{product_id}", response_model=schemas.Product, tags=["Productos"])
 def read_product(product_id: int, db: Session = Depends(get_db)):
     db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
@@ -78,6 +65,7 @@ def read_product(product_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Producto no encontrado")
     return db_product
 
+# Crear un nuevo producto
 @app.post("/products/", response_model=schemas.Product, tags=["Productos"])
 def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
     db_product = models.Product(**product.model_dump())
@@ -86,6 +74,7 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     db.refresh(db_product)
     return db_product
 
+# Actualizar un producto existente
 @app.put("/products/{product_id}", response_model=schemas.Product, tags=["Productos"])
 def update_product(product_id: int, product_update: schemas.ProductCreate, db: Session = Depends(get_db)):
     db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
@@ -100,6 +89,7 @@ def update_product(product_id: int, product_update: schemas.ProductCreate, db: S
     db.refresh(db_product)
     return db_product
 
+# Eliminar un producto
 @app.delete("/products/{product_id}", tags=["Productos"])
 def delete_product(product_id: int, db: Session = Depends(get_db)):
     db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
@@ -109,40 +99,34 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"mensaje": f"Producto con ID {product_id} eliminado exitosamente"}
 
+# Vender una cantidad individual de un producto específico
 @app.post("/products/{product_id}/sell", response_model=schemas.Product, tags=["Productos"])
 def sell_product(product_id: int, quantity: int = 1, db: Session = Depends(get_db)):
-    # 1. Buscar el producto en la base de datos
     db_product = db.query(models.Product).filter(models.Product.id == product_id).first()
     
-    # 2. Validar si el producto existe
     if not db_product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
-    
-    # 3. Validar si la cantidad solicitada es válida (mayor a 0)
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="La cantidad a vender debe ser mayor a 0")
-    
-    # 4. Validar si hay suficiente stock para cubrir la demanda exacta
     if db_product.stock < quantity:
         raise HTTPException(
             status_code=400, 
             detail=f"No hay suficiente stock. Stock disponible: {db_product.stock}, solicitado: {quantity}"
         )
     
-    # 5. Restar la cantidad exacta solicitada
     db_product.stock -= quantity
-    
-    # 6. Guardar los cambios en la base de datos y refrescar
     db.commit()
     db.refresh(db_product)
     return db_product
+
+
 # =====================================================================
-# RUTAS DE CATEGORÍAS
+# --- 4. RUTAS DE CATEGORÍAS ---
 # =====================================================================
 
+# Crear una nueva categoría
 @app.post("/categories/", response_model=schemas.Category, tags=["Categorías"])
 def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db)):
-    # Validar si ya existe una categoría con ese nombre
     db_category = db.query(models.Category).filter(models.Category.name == category.name).first()
     if db_category:
         raise HTTPException(status_code=400, detail="La categoría ya existe")
@@ -153,23 +137,18 @@ def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_
     db.refresh(new_category)
     return new_category
 
+# Obtener todas las categorías
 @app.get("/categories/", response_model=list[schemas.Category], tags=["Categorías"])
 def read_categories(db: Session = Depends(get_db)):
     return db.query(models.Category).all()
+
+# Actualizar el nombre de una categoría
 @app.put("/categories/{category_id}", response_model=schemas.Category, tags=["Categorías"])
-def update_category(
-    category_id: int, 
-    category_data: schemas.CategoryCreate, 
-    db: Session = Depends(get_db)
-):
-    # 1. Buscar la categoría por su ID
+def update_category(category_id: int, category_data: schemas.CategoryCreate, db: Session = Depends(get_db)):
     db_category = db.query(models.Category).filter(models.Category.id == category_id).first()
-    
-    # 2. Si no existe, lanzar un error 404
     if not db_category:
         raise HTTPException(status_code=404, detail="Categoría no encontrada")
     
-    # 3. Validar que el nuevo nombre no esté repetido con otra categoría
     name_exists = db.query(models.Category).filter(
         models.Category.name == category_data.name, 
         models.Category.id != category_id
@@ -178,10 +157,59 @@ def update_category(
     if name_exists:
         raise HTTPException(status_code=400, detail="Ya existe otra categoría con ese nombre")
     
-    # 4. Actualizar el nombre
     db_category.name = category_data.name
-    
-    # 5. Guardar los cambios
     db.commit()
     db.refresh(db_category)
     return db_category
+
+
+# =====================================================================
+# --- 5. RUTAS DE ÓRDENES (CARRITO DE COMPRAS - MUCHOS A MUCHOS) ---
+# =====================================================================
+
+# Procesar una orden con múltiples productos, cantidades y validación integral de stock
+@app.post("/orders/", response_model=schemas.OrderResponse, tags=["Órdenes (Carrito)"])
+def create_order(order_data: schemas.OrderCreate, db: Session = Depends(get_db)):
+    total_order_price = 0.0
+    items_to_create = []
+
+    # CAPA 1: Validar stock de todos los productos antes de alterar nada en la DB
+    for item in order_data.items:
+        product = db.query(models.Product).filter(models.Product.id == item.product_id).first()
+        
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Producto con ID {item.product_id} no encontrado")
+        
+        if product.stock < item.quantity:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Stock insuficiente para {product.name}. Disponible: {product.stock}, Solicitado: {item.quantity}"
+            )
+        
+        item_total = product.price * item.quantity
+        total_order_price += item_total
+        
+        # Almacenamos temporalmente las referencias válidas
+        items_to_create.append((product, item.quantity, product.price))
+
+    # CAPA 2: Si todo el carrito es válido, generamos la cabecera de la orden
+    new_order = models.Order(total_price=total_order_price, status="completed")
+    db.add(new_order)
+    db.commit()
+    db.refresh(new_order)
+
+    # CAPA 3: Descontamos inventario y enlazamos a la tabla intermedia
+    for product, quantity, price in items_to_create:
+        product.stock -= quantity
+        
+        order_item = models.OrderItem(
+            order_id=new_order.id,
+            product_id=product.id,
+            quantity=quantity,
+            price_at_purchase=price
+        )
+        db.add(order_item)
+
+    db.commit()
+    db.refresh(new_order)
+    return new_order

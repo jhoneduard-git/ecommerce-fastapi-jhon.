@@ -1,47 +1,28 @@
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
-# 1. Este es el esquema "Base" con lo que siempre tiene una tarea
+# =====================================================================
+# 1. ESQUEMAS DE TAREAS
+# =====================================================================
 class TareaBase(BaseModel):
     titulo: str
     descripcion: Optional[str] = None
 
-# 2. Este lo usaremos cuando alguien quiera CREAR una tarea (pide lo mínimo)
 class TareaCreate(TareaBase):
     pass  # Hereda titulo y descripcion de TareaBase
 
-# 3. Este es el que la API devolverá al usuario (incluye el ID y el estado)
 class Tarea(TareaBase):
     id: int
-    completada: bool
-
-    class Config:
-        # Esto es vital para que Pydantic pueda leer los modelos de SQLAlchemy
-        from_attributes = True
-        from pydantic import BaseModel
-from typing import Optional
-
-# 1. Esquema base (lo que comparten todos)
-class ProductBase(BaseModel):
-    name: str
-    description: Optional[str] = None
-    price: float
-    stock: int
-
-# 2. Esquema para CREAR un producto (lo que el cliente nos envía)
-class ProductCreate(ProductBase):
-    pass
-
-# 3. Esquema para DEVOLVER un producto (lo que la API responde)
-class Product(ProductBase):
-    id: int
-    is_active: bool
+    completada: bool = False  # Le asignamos un valor por defecto
 
     class Config:
         from_attributes = True
-        from pydantic import BaseModel
 
-# Esquemas para Categorías
+
+# =====================================================================
+# 2. ESQUEMAS DE CATEGORÍAS
+# =====================================================================
 class CategoryBase(BaseModel):
     name: str
 
@@ -55,18 +36,55 @@ class Category(CategoryBase):
         from_attributes = True
 
 
-# Modificamos el esquema de Product para que acepte el category_id (Opcional por ahora)
+# =====================================================================
+# 3. ESQUEMAS DE PRODUCTOS
+# =====================================================================
 class ProductBase(BaseModel):
     name: str
     price: float
     stock: int
-    category_id: int | None = None  # Añadimos esto para poder asignarle categoría al crear
+    category_id: Optional[int] = None  # Permite asociar una categoría (opcional)
 
 class ProductCreate(ProductBase):
     pass
 
 class Product(ProductBase):
     id: int
+
+    class Config:
+        from_attributes = True
+
+
+# =====================================================================
+# 4. ESQUEMAS DE ÓRDENES (CARRITO DE COMPRAS)
+# =====================================================================
+
+# Lo que el cliente nos envía para cada artículo individual del carrito
+class OrderItemCreate(BaseModel):
+    product_id: int
+    quantity: int
+
+# Lo que el cliente envía para crear la orden completa con su lista de productos
+class OrderCreate(BaseModel):
+    items: list[OrderItemCreate]
+
+# Lo que la API responde cuando consultamos un artículo dentro de una orden
+class OrderItemResponse(BaseModel):
+    id: int
+    product_id: int
+    quantity: int
+    price_at_purchase: float
+
+    class Config:
+        from_attributes = True
+
+# Lo que la API responde para la orden completa terminada
+class OrderResponse(BaseModel):
+    id: int
+    created_at: datetime
+    total_price: float
+    status: str
+    items: list[OrderItemResponse]
 
     class Config:
         from_attributes = True
