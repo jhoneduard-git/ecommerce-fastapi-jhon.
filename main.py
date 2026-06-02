@@ -5,6 +5,11 @@ from database import SessionLocal, engine
 import jwt
 from datetime import datetime, timedelta
 import security  # Nuestro archivo auxiliar de encriptación
+from fastapi.security import OAuth2PasswordBearer
+from jwt.exceptions import InvalidTokenError
+# Esto le dice a FastAPI que busque el token en el botón "Authorize" de Swagger
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 # Crea las tablas automáticamente al iniciar el servidor
 models.Base.metadata.create_all(bind=engine)
@@ -25,6 +30,25 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="No se pudieron validar las credenciales",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except InvalidTokenError:
+        raise credentials_exception
+        
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if user is None:
+        raise credentials_exception
+    return user
 
 # =====================================================================
 # --- 1. RUTA DE BIENVENIDA ---
@@ -77,7 +101,14 @@ def read_product(product_id: int, db: Session = Depends(get_db)):
 
 # Crear un nuevo producto
 @app.post("/products/", response_model=schemas.Product, tags=["Productos"])
-def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
+def create_product(
+    product: schemas.ProductCreate, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # 🔒 ¡Esta línea protege la ruta!
+):
+    # Si FastAPI llega a este punto, significa que el token es válido.
+    # El usuario autenticado está guardado en la variable 'current_user' por si lo necesitas.
+    
     db_product = models.Product(**product.model_dump())
     db.add(db_product)
     db.commit()
@@ -253,21 +284,21 @@ def register_user(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
 
 
 # 2. Endpoint para INICIAR SESIÓN (Genera el Token JWT)
-@app.post("/auth/login", response_model=schemas.Token, tags=["Autenticación"])
-def login(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.username == user_data.username).first()
+@app.post("/auth/login", tags=["Autenticación"])
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(), # 👈 ¡Esta es la clave para el candado de Swagger!
+    db: Session = Depends(get_db)
+):
+    # 1. Buscamos al usuario por su username (form_data.username lo extrae automáticamente)
+    user = db.query(models.User).filter(models.User.username == form_data.username).first()
     
-    if not user or not security.verify_password(user_data.password, user.hashed_password):
+    # 2.# Cambiamos 'user.password' por 'user.hashed_password'
+    if not user or not security.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Usuario o contraseña incorrectos")
+    # 3. Si todo está bien, generamos el token
+    access_token_expires = timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = security.create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
     
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    expire = datetime.now() + access_token_expires
-    
-    token_data = {
-        "sub": user.username,
-        "exp": expire
-    }
-    
-    encoded_jwt = jwt.encode(token_data, SECRET_KEY, algorithm=ALGORITHM)
-    
-    return {"access_token": encoded_jwt, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer"}
